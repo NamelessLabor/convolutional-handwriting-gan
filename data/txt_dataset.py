@@ -51,14 +51,14 @@ class TxtDataset(BaseDataset):
 
     def _load_txt_list(self, list_path, list_format):
         list_path = os.path.abspath(list_path)
-        base_dir = os.path.dirname(list_path)
+        data_root = os.path.abspath(self.root)
         if list_format == 'pair_lines':
-            return self._parse_pair_lines(list_path, base_dir)
+            return self._parse_pair_lines(list_path, data_root)
         if list_format == 'tsv':
-            return self._parse_tsv(list_path, base_dir)
+            return self._parse_tsv(list_path, data_root)
         raise ValueError(f'Unsupported txt_format: {list_format}')
 
-    def _parse_pair_lines(self, list_path, base_dir):
+    def _parse_pair_lines(self, list_path, data_root):
         samples = []
         with open(list_path, 'r', encoding='utf-8') as handle:
             lines = [line.rstrip('\n') for line in handle]
@@ -74,11 +74,11 @@ class TxtDataset(BaseDataset):
                 raise ValueError('pair_lines format expects image path and label lines.')
             label_line = lines[idx].rstrip('\n')
             idx += 1
-            img_path = self._resolve_path(img_line, base_dir)
+            img_path = self._resolve_path(img_line, data_root)
             samples.append((img_path, label_line))
         return samples
 
-    def _parse_tsv(self, list_path, base_dir):
+    def _parse_tsv(self, list_path, data_root):
         samples = []
         with open(list_path, 'r', encoding='utf-8') as handle:
             for line in handle:
@@ -91,14 +91,14 @@ class TxtDataset(BaseDataset):
                     parts = line.split(maxsplit=1)
                     img_part = parts[0]
                     label_part = parts[1] if len(parts) > 1 else ''
-                img_path = self._resolve_path(img_part, base_dir)
+                img_path = self._resolve_path(img_part, data_root)
                 samples.append((img_path, label_part))
         return samples
 
-    def _resolve_path(self, path, base_dir):
+    def _resolve_path(self, path, data_root):
         if os.path.isabs(path):
             return path
-        return os.path.join(base_dir, path)
+        return os.path.join(data_root, path)
 
 
 class TxtCollator(object):
