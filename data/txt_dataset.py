@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 import os
+import random
 from PIL import Image
 import torch
 from data.base_dataset import BaseDataset, get_transform
@@ -18,6 +19,23 @@ class TxtDataset(BaseDataset):
         parser.add_argument('--txt_format', type=str, default='tsv',
                             choices=['tsv', 'pair_lines'],
                             help='format of txt list file')
+        parser.add_argument('--txt_resize', type=str, default='charResize',
+                            choices=['charResize', 'keepRatio', 'noResize'],
+                            help='LMDB-style resize policy for txt images')
+        parser.add_argument('--txt_init_gap', type=int, default=0,
+                            help='initial gap for LMDB-style preprocessing')
+        parser.add_argument('--txt_h_gap', type=int, default=0,
+                            help='vertical gap for LMDB-style preprocessing')
+        parser.add_argument('--txt_charminW', type=int, default=16,
+                            help='minimum character width for LMDB-style preprocessing')
+        parser.add_argument('--txt_charmaxW', type=int, default=17,
+                            help='maximum character width for LMDB-style preprocessing')
+        parser.add_argument('--no_txt_discard_wide', action='store_false',
+                            dest='txt_discard_wide', default=True,
+                            help='do not discard images that are too wide for LMDB-style preprocessing')
+        parser.add_argument('--no_txt_discard_narr', action='store_false',
+                            dest='txt_discard_narr', default=True,
+                            help='do not discard images that are too narrow for LMDB-style preprocessing')
         return parser
 
     def __init__(self, opt, target_transform=None):
@@ -36,10 +54,16 @@ class TxtDataset(BaseDataset):
     def __getitem__(self, index):
         img_path, label = self.samples[index]
         try:
-            img = Image.open(img_path).convert('L')
+            img = Image.open(img_path)
         except IOError:
             print('Corrupted image for %s' % img_path)
             return self[index + 1]
+
+        img = self._apply_lmdb_preprocess(img, label, img_path)
+        if img is None:
+            return self[index + 1]
+
+        img = img.convert('L')
 
         if self.transform is not None:
             img = self.transform(img)
@@ -48,6 +72,34 @@ class TxtDataset(BaseDataset):
             label = self.target_transform(label)
 
         return {'img': img, 'label': label, 'img_path': img_path}
+
+    def _apply_lmdb_preprocess(self, img, label, img_path):
+        if self.opt.txt_resize not in ['charResize', 'keepRatio']:
+            return img
+
+        width, height = img.size
+        new_height = self.opt.imgH - (self.opt.txt_h_gap * 2)
+        len_word = len(label)
+        if height == 0 or len_word == 0:
+            return img
+        width = int(width * self.opt.imgH / height)
+        new_width = width
+        if self.opt.txt_resize == 'charResize':
+            avg_char_width = width / len_word
+            if (avg_char_width > (self.opt.txt_charmaxW - 1)) or (avg_char_width < self.opt.txt_charminW):
+                if self.opt.txt_discard_wide and avg_char_width > 3 * (self.opt.txt_charmaxW - 1):
+                    print('%s has a width larger than max image width' % img_path)
+                    return None
+                if self.opt.txt_discard_narr and avg_char_width < (self.opt.txt_charminW / 3):
+                    print('%s has a width smaller than min image width' % img_path)
+                    return None
+                new_width = len_word * random.randrange(self.opt.txt_charminW, self.opt.txt_charmaxW)
+
+        img = img.resize((new_width, new_height))
+        init_w = int(random.normalvariate(self.opt.txt_init_gap, self.opt.txt_init_gap / 2)) if self.opt.txt_init_gap > 0 else 0
+        new_img = Image.new("RGB", (new_width + self.opt.txt_init_gap, self.opt.imgH), color=(255, 255, 255))
+        new_img.paste(img, (abs(init_w), self.opt.txt_h_gap))
+        return new_img
 
     def _load_txt_list(self, list_path, list_format):
         list_path = os.path.abspath(list_path)
