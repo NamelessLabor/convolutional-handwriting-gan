@@ -35,11 +35,11 @@ class TxtDataset(BaseDataset):
 
     def __getitem__(self, index):
         img_path, label = self.samples[index]
-        img = Image.open(img_path)
-        if self.opt.input_nc == 1:
-            img = img.convert('L')
-        else:
-            img = img.convert('RGB')
+        try:
+            img = Image.open(img_path).convert('L')
+        except IOError:
+            print('Corrupted image for %s' % img_path)
+            return self[index + 1]
 
         if self.transform is not None:
             img = self.transform(img)
